@@ -1,0 +1,171 @@
+import { Router, type IRouter } from "express";
+import { eq } from "drizzle-orm";
+import { db, conversations as conversationsTable, messages as messagesTable } from "@workspace/db";
+import {
+  CreateOpenrouterConversationBody,
+  GetOpenrouterConversationParams,
+  DeleteOpenrouterConversationParams,
+  ListOpenrouterMessagesParams,
+  SendOpenrouterMessageParams,
+  SendOpenrouterMessageBody,
+} from "@workspace/api-zod";
+import { openrouter } from "@workspace/integrations-openrouter-ai";
+
+const router: IRouter = Router();
+
+const MODEL = "meta-llama/llama-4-scout";
+
+router.get("/openrouter/conversations", async (_req, res): Promise<void> => {
+  const conversations = await db
+    .select()
+    .from(conversationsTable)
+    .orderBy(conversationsTable.createdAt);
+  res.json(conversations);
+});
+
+router.post("/openrouter/conversations", async (req, res): Promise<void> => {
+  const parsed = CreateOpenrouterConversationBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const [conv] = await db
+    .insert(conversationsTable)
+    .values({ title: parsed.data.title })
+    .returning();
+  res.status(201).json(conv);
+});
+
+router.get("/openrouter/conversations/:id", async (req, res): Promise<void> => {
+  const params = GetOpenrouterConversationParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [conv] = await db
+    .select()
+    .from(conversationsTable)
+    .where(eq(conversationsTable.id, params.data.id));
+  if (!conv) {
+    res.status(404).json({ error: "Conversation not found" });
+    return;
+  }
+  const messages = await db
+    .select()
+    .from(messagesTable)
+    .where(eq(messagesTable.conversationId, params.data.id))
+    .orderBy(messagesTable.createdAt);
+  res.json({ ...conv, messages });
+});
+
+router.delete("/openrouter/conversations/:id", async (req, res): Promise<void> => {
+  const params = DeleteOpenrouterConversationParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [conv] = await db
+    .delete(conversationsTable)
+    .where(eq(conversationsTable.id, params.data.id))
+    .returning();
+  if (!conv) {
+    res.status(404).json({ error: "Conversation not found" });
+    return;
+  }
+  res.sendStatus(204);
+});
+
+router.get("/openrouter/conversations/:id/messages", async (req, res): Promise<void> => {
+  const params = ListOpenrouterMessagesParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const messages = await db
+    .select()
+    .from(messagesTable)
+    .where(eq(messagesTable.conversationId, params.data.id))
+    .orderBy(messagesTable.createdAt);
+  res.json(messages);
+});
+
+router.post("/openrouter/conversations/:id/messages", async (req, res): Promise<void> => {
+  const params = SendOpenrouterMessageParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const bodyParsed = SendOpenrouterMessageBody.safeParse(req.body);
+  if (!bodyParsed.success) {
+    res.status(400).json({ error: bodyParsed.error.message });
+    return;
+  }
+
+  const conversationId = params.data.id;
+  const userContent = bodyParsed.data.content;
+
+  const [conv] = await db
+    .select()
+    .from(conversationsTable)
+    .where(eq(conversationsTable.id, conversationId));
+  if (!conv) {
+    res.status(404).json({ error: "Conversation not found" });
+    return;
+  }
+
+  await db.insert(messagesTable).values({
+    conversationId,
+    role: "user",
+    content: userContent,
+  });
+
+  const allMessages = await db
+    .select()
+    .from(messagesTable)
+    .where(eq(messagesTable.conversationId, conversationId))
+    .orderBy(messagesTable.createdAt);
+
+  const chatHistory = allMessages.map((m) => ({
+    role: m.role as "user" | "assistant",
+    content: m.content,
+  }));
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  let fullResponse = "";
+
+  const stream = await openrouter.chat.completions.create({
+    model: MODEL,
+    max_tokens: 8192,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a collaborative storytelling AI friend. The user and you are writing a story together, taking turns. Continue the story with exactly one creative paragraph that flows naturally from what came before. Do not summarize or conclude the story — leave room for the user to continue. Be imaginative and engaging.",
+      },
+      ...chatHistory,
+    ],
+    stream: true,
+  });
+
+  for await (const chunk of stream) {
+    const content = chunk.choices[0]?.delta?.content;
+    if (content) {
+      fullResponse += content;
+      res.write(`data: ${JSON.stringify({ content })}\n\n`);
+    }
+  }
+
+  await db.insert(messagesTable).values({
+    conversationId,
+    role: "assistant",
+    content: fullResponse,
+  });
+
+  res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+  res.end();
+});
+
+export default router;

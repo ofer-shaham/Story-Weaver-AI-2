@@ -6,4 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./createOpenrouterConversationBody";
 export * from "./healthStatus";
+export * from "./openrouterConversation";
+export * from "./openrouterConversationWithMessages";
+export * from "./openrouterError";
+export * from "./openrouterMessage";
+export * from "./sendOpenrouterMessageBody";

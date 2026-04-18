@@ -15,6 +15,7 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
+- **AI**: OpenRouter via Replit AI Integrations (lib/integrations-openrouter-ai)
 
 ## Key Commands
 
@@ -23,5 +24,14 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
+
+## Applications
+
+### Story Together (`artifacts/story-app`)
+A collaborative storytelling app where the user and AI take turns writing story paragraphs.
+- **Frontend**: React + Vite at `/`
+- **Model**: `meta-llama/llama-4-scout` via OpenRouter
+- **DB tables**: `conversations`, `messages`
+- **API routes**: `/api/openrouter/conversations`, `/api/openrouter/conversations/:id/messages` (SSE stream)
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.

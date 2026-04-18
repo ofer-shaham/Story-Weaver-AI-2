@@ -1,0 +1,123 @@
+import express from "express";
+import { z } from "zod";
+
+const router = express.Router();
+
+const ChatRequestSchema = z.object({
+  story: z.string().min(1, "Story cannot be empty"),
+  count: z.number().int().min(1).max(10).default(3),
+  temperature: z
+    .number()
+    .min(0.0, "Temperature must be at least 0.0")
+    .max(2.0, "Temperature must be at most 2.0")
+    .default(1.0),
+});
+
+const StructuredChatRequestSchema = z.object({
+  story: z.string().min(1, "Story cannot be empty"),
+  temperature: z
+    .number()
+    .min(0.0, "Temperature must be at least 0.0")
+    .max(2.0, "Temperature must be at most 2.0")
+    .default(1.0),
+});
+
+const generateSuggestions = async (
+  story: string,
+  count: number,
+  temperature: number
+) => {
+  const requests = Array.from({ length: count }, () =>
+    fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "openrouter/free",
+        messages: [
+          {
+            role: "system",
+            content: "Continue the story with exactly one creative sentence.",
+          },
+          { role: "user", content: `Story so far: ${story}` },
+        ],
+        temperature,
+        max_tokens: 100,
+      }),
+    }).then((r) => r.json())
+  );
+
+  const results = await Promise.all(requests);
+  return results.map((r) => r.choices[0].message.content);
+};
+
+const generateStructuredContinuation = async (
+  story: string,
+  temperature: number
+) => {
+  const result = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "openrouter/free",
+      messages: [
+        {
+          role: "system",
+          content: "Continue the story with exactly one creative sentence.",
+        },
+        { role: "user", content: `Story so far: ${story}` },
+      ],
+      temperature,
+      max_tokens: 100,
+    }),
+  }).then((r) => r.json());
+
+  return result.choices[0].message.content;
+};
+
+router.post("/api/chat", async (req, res) => {
+  const parsed = ChatRequestSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid request parameters",
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  const { story, count, temperature } = parsed.data;
+
+  try {
+    const suggestions = await generateSuggestions(story, count, temperature);
+    return res.json({ suggestions });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to generate suggestions" });
+  }
+});
+
+router.post("/api/chat/single", async (req, res) => {
+  const parsed = StructuredChatRequestSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid request parameters",
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  const { story, temperature } = parsed.data;
+
+  try {
+    const suggestion = await generateStructuredContinuation(story, temperature);
+    return res.json({ suggestion });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to generate suggestion" });
+  }
+});
+
+export default router;

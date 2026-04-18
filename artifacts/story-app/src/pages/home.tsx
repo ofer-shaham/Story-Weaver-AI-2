@@ -14,8 +14,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PenLine, BookOpen, Trash2 } from "lucide-react";
+import { useSettings } from "@/hooks/use-settings";
+import { SettingsDialog } from "@/components/settings-dialog";
 
 export default function Home() {
+  const { settings, updateSettings } = useSettings();
   const { data: conversations, isLoading } = useListOpenrouterConversations();
   const createConversation = useCreateOpenrouterConversation();
   const deleteConversation = useDeleteOpenrouterConversation();
@@ -87,7 +90,9 @@ export default function Home() {
           </p>
         </div>
 
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <div className="flex items-center gap-2">
+          <SettingsDialog settings={settings} onSave={updateSettings} />
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-full px-6 shadow-md transition-all font-sans font-medium">
               <PenLine className="w-4 h-4 mr-2" />
@@ -134,7 +139,8 @@ export default function Home() {
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </div>
 
       {isLoading ? (

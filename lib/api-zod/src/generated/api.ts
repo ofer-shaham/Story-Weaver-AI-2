@@ -90,4 +90,9 @@ export const SendOpenrouterMessageParams = zod.object({
 
 export const SendOpenrouterMessageBody = zod.object({
   content: zod.string(),
+  model: zod.string().optional(),
+  maxTokens: zod.number().nullish(),
+  temperature: zod.number().nullish(),
+  apiKey: zod.string().nullish(),
+  apiUrl: zod.string().nullish(),
 });

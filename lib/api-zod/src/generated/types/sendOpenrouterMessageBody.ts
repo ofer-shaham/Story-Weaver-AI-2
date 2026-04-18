@@ -8,4 +8,13 @@
 
 export interface SendOpenrouterMessageBody {
   content: string;
+  model?: string;
+  /** @nullable */
+  maxTokens?: number | null;
+  /** @nullable */
+  temperature?: number | null;
+  /** @nullable */
+  apiKey?: string | null;
+  /** @nullable */
+  apiUrl?: string | null;
 }

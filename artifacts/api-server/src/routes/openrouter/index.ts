@@ -10,10 +10,21 @@ import {
   SendOpenrouterMessageBody,
 } from "@workspace/api-zod";
 import { openrouter } from "@workspace/integrations-openrouter-ai";
+import OpenAI from "openai";
 
 const router: IRouter = Router();
 
-const MODEL = "meta-llama/llama-4-scout";
+const DEFAULT_MODEL = "openrouter/auto";
+
+function getClient(apiKey?: string | null, apiUrl?: string | null): OpenAI {
+  if (apiKey || apiUrl) {
+    return new OpenAI({
+      baseURL: apiUrl ?? process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL,
+      apiKey: apiKey ?? process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY ?? "dummy",
+    });
+  }
+  return openrouter;
+}
 
 router.get("/openrouter/conversations", async (_req, res): Promise<void> => {
   const conversations = await db
@@ -102,7 +113,7 @@ router.post("/openrouter/conversations/:id/messages", async (req, res): Promise<
   }
 
   const conversationId = params.data.id;
-  const userContent = bodyParsed.data.content;
+  const { content: userContent, model, maxTokens, temperature, apiKey, apiUrl } = bodyParsed.data;
 
   const [conv] = await db
     .select()
@@ -136,9 +147,12 @@ router.post("/openrouter/conversations/:id/messages", async (req, res): Promise<
 
   let fullResponse = "";
 
-  const stream = await openrouter.chat.completions.create({
-    model: MODEL,
-    max_tokens: 8192,
+  const client = getClient(apiKey, apiUrl);
+
+  const stream = await client.chat.completions.create({
+    model: model ?? DEFAULT_MODEL,
+    max_tokens: maxTokens ?? 8192,
+    temperature: temperature ?? undefined,
     messages: [
       {
         role: "system",

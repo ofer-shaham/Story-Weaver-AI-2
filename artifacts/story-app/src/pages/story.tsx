@@ -5,6 +5,8 @@ import {
   useListOpenrouterMessages 
 } from "@workspace/api-client-react";
 import { useStoryStream } from "@/hooks/use-story-stream";
+import { useSettings } from "@/hooks/use-settings";
+import { SettingsDialog } from "@/components/settings-dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, Send, Sparkles, PenLine } from "lucide-react";
@@ -13,6 +15,8 @@ import { cn } from "@/lib/utils";
 export default function Story() {
   const [, params] = useRoute("/story/:id");
   const id = Number(params?.id);
+
+  const { settings, updateSettings } = useSettings();
   
   const { data: conversation, isLoading: isLoadingConv } = useGetOpenrouterConversation(id, { 
     query: { enabled: !!id } 
@@ -22,7 +26,7 @@ export default function Story() {
     query: { enabled: !!id }
   });
 
-  const { sendMessage, isTyping, streamedContent } = useStoryStream(id);
+  const { sendMessage, isTyping, streamedContent } = useStoryStream(id, settings);
   
   const [draft, setDraft] = useState("");
   const endOfStoryRef = useRef<HTMLDivElement>(null);
@@ -87,6 +91,7 @@ export default function Story() {
             {conversation.title}
           </h1>
         </div>
+        <SettingsDialog settings={settings} onSave={updateSettings} />
       </header>
 
       {/* Story Content */}

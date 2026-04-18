@@ -1,8 +1,9 @@
 import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListOpenrouterMessagesQueryKey } from "@workspace/api-client-react";
+import { type StorySettings } from "@/hooks/use-settings";
 
-export function useStoryStream(conversationId: number) {
+export function useStoryStream(conversationId: number, settings?: StorySettings) {
   const [isTyping, setIsTyping] = useState(false);
   const [streamedContent, setStreamedContent] = useState("");
   const queryClient = useQueryClient();
@@ -13,10 +14,19 @@ export function useStoryStream(conversationId: number) {
       setStreamedContent("");
 
       try {
+        const body: Record<string, unknown> = { content };
+        if (settings) {
+          body.model = settings.model || "openrouter/free";
+          body.maxTokens = settings.maxTokens;
+          body.temperature = settings.temperature;
+          if (settings.apiKey) body.apiKey = settings.apiKey;
+          if (settings.apiUrl) body.apiUrl = settings.apiUrl;
+        }
+
         const response = await fetch(`/api/openrouter/conversations/${conversationId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content }),
+          body: JSON.stringify(body),
         });
 
         if (!response.ok) {
@@ -34,11 +44,11 @@ export function useStoryStream(conversationId: number) {
         while (!done) {
           const { value, done: readerDone } = await reader.read();
           done = readerDone;
-          
+
           if (value) {
             const chunk = decoder.decode(value, { stream: true });
             const lines = chunk.split("\n");
-            
+
             for (const line of lines) {
               if (line.startsWith("data: ") && line !== "data: [DONE]") {
                 try {
@@ -49,8 +59,8 @@ export function useStoryStream(conversationId: number) {
                   if (data.done) {
                     done = true;
                   }
-                } catch (e) {
-                  console.error("Failed to parse SSE chunk", e);
+                } catch {
+                  // ignore malformed chunks
                 }
               }
             }
@@ -61,13 +71,12 @@ export function useStoryStream(conversationId: number) {
       } finally {
         setIsTyping(false);
         setStreamedContent("");
-        // Invalidate to fetch the completed message from the DB
         queryClient.invalidateQueries({
           queryKey: getListOpenrouterMessagesQueryKey(conversationId),
         });
       }
     },
-    [conversationId, queryClient]
+    [conversationId, queryClient, settings]
   );
 
   return { sendMessage, isTyping, streamedContent };

@@ -13,6 +13,20 @@ function getSpeechRecognition(): SpeechRecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+export interface ListenOptions {
+  /** Ms of silence after speech ends before resolving. Default 4000. */
+  silenceMs?: number;
+  /**
+   * Ms of no-speech before the nudge callback fires. Default 0 (disabled).
+   * Repeats every `nudgeMs` until `maxNudges` is reached, then stops recognition.
+   */
+  nudgeMs?: number;
+  /** How many nudges to emit before giving up. Default 0 (infinite). */
+  maxNudges?: number;
+  /** Called each time the nudge timer fires. Receives nudge index (1-based). */
+  onNudge?: (nudgeIndex: number) => void;
+}
+
 export function useVoice(enabled: boolean) {
   const [state, setState] = useState<VoiceState>("idle");
   const recognitionRef = useRef<SpeechRecognition | null>(null);
@@ -57,11 +71,21 @@ export function useVoice(enabled: boolean) {
   }, []);
 
   /**
-   * One-shot listen: resolves with transcript after `silenceMs` of silence
-   * (default 4000 ms). Uses continuous mode so it accumulates the full reply.
+   * Listen until speech is detected and then `silenceMs` of silence elapses.
+   *
+   * If `nudgeMs` is set and no speech begins within that window, `onNudge` is
+   * called and the timer resets. After `maxNudges` nudges recognition stops and
+   * the promise resolves with whatever transcript was collected (usually "").
    */
   const listenOnce = useCallback(
-    (silenceMs = 4000): Promise<string> => {
+    (options: ListenOptions = {}): Promise<string> => {
+      const {
+        silenceMs = 4000,
+        nudgeMs = 0,
+        maxNudges = 0,
+        onNudge,
+      } = options;
+
       return new Promise((resolve) => {
         if (!enabled) {
           resolve("");
@@ -81,41 +105,70 @@ export function useVoice(enabled: boolean) {
         recognition.lang = "en-US";
 
         let transcript = "";
+        let speechDetected = false;
         let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+        let nudgeTimer: ReturnType<typeof setTimeout> | null = null;
+        let nudgeCount = 0;
+
+        const clearAllTimers = () => {
+          if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
+          if (nudgeTimer) { clearTimeout(nudgeTimer); nudgeTimer = null; }
+        };
 
         const resetSilenceTimer = () => {
           if (silenceTimer) clearTimeout(silenceTimer);
-          silenceTimer = setTimeout(() => {
-            recognition.stop();
-          }, silenceMs);
+          silenceTimer = setTimeout(() => recognition.stop(), silenceMs);
+        };
+
+        const scheduleNudge = () => {
+          if (!nudgeMs || nudgeMs <= 0) return;
+          nudgeTimer = setTimeout(() => {
+            if (speechDetected) return; // speech started, nudge no longer relevant
+            nudgeCount++;
+            onNudge?.(nudgeCount);
+            if (maxNudges > 0 && nudgeCount >= maxNudges) {
+              // Gave up — stop recognition
+              recognition.stop();
+            } else {
+              scheduleNudge(); // reschedule for next nudge
+            }
+          }, nudgeMs);
         };
 
         recognition.onstart = () => {
           setState("listening");
-          resetSilenceTimer();
+          // Do NOT start the silence timer yet — only start it once speech begins.
+          // Start the nudge timer to detect prolonged silence before first speech.
+          scheduleNudge();
         };
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         recognition.onresult = (e: any) => {
-          let interim = "";
+          if (!speechDetected) {
+            // First speech detected — cancel nudge, begin silence detection
+            speechDetected = true;
+            if (nudgeTimer) { clearTimeout(nudgeTimer); nudgeTimer = null; }
+          }
+          let hasContent = false;
           for (let i = e.resultIndex; i < e.results.length; i++) {
             if (e.results[i].isFinal) {
               transcript += e.results[i][0].transcript + " ";
-            } else {
-              interim += e.results[i][0].transcript;
+              hasContent = true;
+            } else if (e.results[i][0].transcript) {
+              hasContent = true;
             }
           }
-          if (transcript || interim) resetSilenceTimer();
+          if (hasContent) resetSilenceTimer();
         };
 
         recognition.onend = () => {
-          if (silenceTimer) clearTimeout(silenceTimer);
+          clearAllTimers();
           setState("idle");
           resolve(transcript.trim());
         };
 
         recognition.onerror = () => {
-          if (silenceTimer) clearTimeout(silenceTimer);
+          clearAllTimers();
           setState("idle");
           resolve(transcript.trim());
         };

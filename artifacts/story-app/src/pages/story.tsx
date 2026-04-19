@@ -59,6 +59,8 @@ export default function Story() {
 
   // Blind mode status text shown to the user
   const [blindStatus, setBlindStatus] = useState("");
+  // Amber background when user hasn't responded (nudge state)
+  const [isNoResponse, setIsNoResponse] = useState(false);
 
   const endOfStoryRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -71,13 +73,23 @@ export default function Story() {
   const blindModeEnabledRef = useRef(settings.blindMode);
   // Track if we already played the error sound this error cycle
   const errorSoundPlayedRef = useRef(false);
+  // When true, the loop gave up after max nudges and should not auto-restart
+  const gaveUpRef = useRef(false);
 
   useEffect(() => {
     blindModeEnabledRef.current = settings.blindMode;
     if (!settings.blindMode) {
       voice.stopSpeaking();
+      setIsNoResponse(false);
+      gaveUpRef.current = false;
     }
   }, [settings.blindMode, voice]);
+
+  // Reset gave-up flag whenever new messages arrive (fresh AI turn = fresh chance to listen)
+  useEffect(() => {
+    gaveUpRef.current = false;
+    setIsNoResponse(false);
+  }, [messages]);
 
   // Play error sound once when a stream error occurs
   useEffect(() => {
@@ -100,6 +112,7 @@ export default function Story() {
     if (!settings.blindMode) return;
     if (isTyping) return;
     if (blindLoopRunningRef.current) return;
+    if (gaveUpRef.current) return;
     if (!messages) return;
 
     const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
@@ -123,20 +136,33 @@ export default function Story() {
 
         if (!blindModeEnabledRef.current) return;
 
-        // 2. Listen until user finishes speaking (4-second silence)
-        let transcript = "";
-        while (!transcript.trim()) {
-          if (!blindModeEnabledRef.current) return;
-          setBlindStatus("Listening… speak your paragraph.");
-          transcript = await voice.listenOnce(4000);
+        // 2. Listen — nudge after 10.5 s of silence, give up after 2 nudges
+        setBlindStatus("Listening… speak your paragraph.");
+        const transcript = await voice.listenOnce({
+          silenceMs: 4000,
+          nudgeMs: 10500,
+          maxNudges: 2,
+          onNudge: (n) => {
+            playSound("nudge");
+            setIsNoResponse(true);
+            setBlindStatus(
+              n < 2
+                ? "Still listening… speak whenever you're ready."
+                : "Last chance… speak now or listening will stop."
+            );
+          },
+        });
 
-          if (!blindModeEnabledRef.current) return;
+        // Clear the nudge background once listening ends
+        setIsNoResponse(false);
 
-          if (!transcript.trim()) {
-            // Play a subtle sound to indicate no input was detected, then retry silently
-            playSound("error");
-            setBlindStatus("No input detected. Listening again…");
-          }
+        if (!blindModeEnabledRef.current) return;
+
+        if (!transcript.trim()) {
+          // Max nudges reached with no response — give up this turn
+          gaveUpRef.current = true;
+          setBlindStatus("No response detected. Tap the mic to try again.");
+          return;
         }
 
         // 3. Play back what was heard (if option enabled)
@@ -248,7 +274,9 @@ export default function Story() {
     <div
       className={cn(
         "max-w-3xl mx-auto min-h-screen flex flex-col transition-colors duration-700",
-        isListening
+        isNoResponse
+          ? "bg-amber-950/10 dark:bg-amber-900/20"
+          : isListening
           ? "bg-blue-950/10 dark:bg-blue-900/20"
           : "bg-background"
       )}
@@ -257,7 +285,9 @@ export default function Story() {
       <header
         className={cn(
           "py-6 px-6 md:px-8 border-b border-border/40 sticky top-0 backdrop-blur-sm z-10 flex items-center justify-between transition-colors duration-700",
-          isListening
+          isNoResponse
+            ? "bg-amber-950/10 dark:bg-amber-900/20"
+            : isListening
             ? "bg-blue-950/10 dark:bg-blue-900/20"
             : "bg-background/95"
         )}
@@ -277,10 +307,16 @@ export default function Story() {
           </h1>
         </div>
         <div className="flex items-center gap-1">
-          {isListening && (
+          {isListening && !isNoResponse && (
             <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-blue-500/15 border border-blue-400/30">
               <Mic className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
               <span className="text-xs text-blue-400 font-sans font-medium">Listening</span>
+            </div>
+          )}
+          {isNoResponse && (
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-amber-500/15 border border-amber-400/30">
+              <Mic className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+              <span className="text-xs text-amber-400 font-sans font-medium">Waiting…</span>
             </div>
           )}
           {settings.blindMode && isSpeaking && (
@@ -426,8 +462,11 @@ export default function Story() {
               {isSpeaking && (
                 <Volume2 className="w-5 h-5 text-primary animate-pulse shrink-0" />
               )}
-              {isListening && (
+              {isListening && !isNoResponse && (
                 <Mic className="w-5 h-5 text-blue-400 animate-pulse shrink-0" />
+              )}
+              {isNoResponse && (
+                <Mic className="w-5 h-5 text-amber-400 animate-pulse shrink-0" />
               )}
               <p className="text-center text-sm font-sans text-muted-foreground italic">
                 {isTyping

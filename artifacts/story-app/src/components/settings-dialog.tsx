@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { type StorySettings } from "@/hooks/use-settings";
 
 interface SettingsDialogProps {
@@ -59,6 +60,22 @@ export function SettingsDialog({ settings, onSave }: SettingsDialogProps) {
         </DialogHeader>
 
         <div className="space-y-5 py-2">
+          <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background px-4 py-3">
+            <div>
+              <Label htmlFor="blindMode" className="text-sm font-medium cursor-pointer">
+                Blind Mode
+              </Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Hands-free: AI reads aloud, then you speak your turn.
+              </p>
+            </div>
+            <Switch
+              id="blindMode"
+              checked={local.blindMode}
+              onCheckedChange={(v) => setLocal((p) => ({ ...p, blindMode: v }))}
+            />
+          </div>
+
           <div className="space-y-1.5">
             <Label htmlFor="model">Model</Label>
             <Input

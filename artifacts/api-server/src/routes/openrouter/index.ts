@@ -143,10 +143,12 @@ router.post("/openrouter/conversations/:id/messages", async (req, res): Promise<
     .where(eq(messagesTable.conversationId, conversationId))
     .orderBy(messagesTable.createdAt);
 
-  const chatHistory = allMessages.map((m) => ({
-    role: m.role as "user" | "assistant",
-    content: m.content,
-  }));
+  const chatHistory = allMessages
+    .filter((m) => m.content.trim() !== "")
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -164,7 +166,7 @@ router.post("/openrouter/conversations/:id/messages", async (req, res): Promise<
       {
         role: "system",
         content:
-          "You are a collaborative storytelling AI friend. The user and you are writing a story together, taking turns. Continue the story with exactly one creative paragraph that flows naturally from what came before. Do not summarize or conclude the story — leave room for the user to continue. Be imaginative and engaging.",
+          "You are a collaborative storytelling AI friend. The user and you are writing a story together, taking turns. Write exactly one new creative paragraph that continues the story forward. IMPORTANT: Do not repeat, restate, or paraphrase anything that has already been written — only add brand-new content that hasn't appeared yet. Do not summarize or conclude the story — leave room for the user to continue. Be imaginative and engaging.",
       },
       ...chatHistory,
     ],
@@ -179,11 +181,13 @@ router.post("/openrouter/conversations/:id/messages", async (req, res): Promise<
     }
   }
 
-  await db.insert(messagesTable).values({
-    conversationId,
-    role: "assistant",
-    content: fullResponse,
-  });
+  if (fullResponse.trim()) {
+    await db.insert(messagesTable).values({
+      conversationId,
+      role: "assistant",
+      content: fullResponse,
+    });
+  }
 
   res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
   res.end();

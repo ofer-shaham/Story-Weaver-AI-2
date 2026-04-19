@@ -198,7 +198,7 @@ export default function Story() {
           </div>
         )}
 
-        {messages?.map((msg) => (
+        {messages?.filter((msg) => msg.content.trim() !== "").map((msg) => (
           <div
             key={msg.id}
             className={cn(

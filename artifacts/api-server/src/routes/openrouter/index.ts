@@ -19,6 +19,7 @@ import {
 } from "@workspace/api-zod";
 import { openrouter } from "@workspace/integrations-openrouter-ai";
 import OpenAI from "openai";
+import { logger } from "../../lib/logger";
 
 interface AppConfig {
   openrouter?: {
@@ -42,31 +43,29 @@ const config = loadConfig();
 const DEFAULT_MODEL =
   config.openrouter?.model?.trim() ||
   process.env.OPENROUTER_MODEL ||
-  "openrouter/auto";
+  "openrouter/free";
 
 const router: IRouter = Router();
 
 function getClient(apiKey?: string | null, apiUrl?: string | null): OpenAI {
   const resolvedKey =
-    apiKey?.trim() ||
-    config.openrouter?.apiKey?.trim().split(".")[0] ||
-    process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY;
+    (apiKey?.trim() ||
+      config.openrouter?.apiKey?.trim().split(".")[0] ||
+      process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY) ??
+    "dummy";
 
   const resolvedUrl =
     apiUrl?.trim() ||
     config.openrouter?.apiUrl?.trim() ||
     process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL;
 
-  if (
-    apiKey?.trim() ||
-    apiUrl?.trim() ||
-    config.openrouter?.apiKey?.trim() ||
-    config.openrouter?.apiUrl?.trim()
-  ) {
+  if (resolvedUrl && resolvedKey) {
     return new OpenAI({
-      baseURL: resolvedUrl ?? process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL,
-      apiKey: resolvedKey ?? "dummy",
+      baseURL: resolvedUrl,
+      apiKey: resolvedKey,
     });
+  } else {
+    logger.error("No API key AND URL provided for OpenRouter");
   }
   return openrouter;
 }
